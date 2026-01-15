@@ -134,8 +134,11 @@ def generate(
         GenerationStage(),
         ValidationStage(),
         ReviewStage(skip=skip_review),
-        WriteStage(output_path=output, force=dry_run),  # In dry-run, don't actually write
     ]
+
+    # Only add WriteStage if not in dry-run mode
+    if not dry_run:
+        stages.append(WriteStage(output_path=output))
     
     pipeline = Pipeline(stages)
     

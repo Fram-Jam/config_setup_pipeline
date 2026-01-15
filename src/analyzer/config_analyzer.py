@@ -59,12 +59,29 @@ class ConfigAnalyzer:
     """Analyzes existing configurations to extract patterns."""
 
     def __init__(self, configs_path: str):
-        self.configs_path = Path(configs_path)
+        self.configs_path = Path(configs_path).resolve()
         self.patterns: list[ConfigPattern] = []
         self.agents: list[ExtractedAgent] = []
         self.commands: list[ExtractedCommand] = []
         self.hooks: list[ExtractedHook] = []
         self.settings_patterns: list[dict] = []
+
+    def _validate_path(self, path: Path) -> bool:
+        """Validate that path is within the configs directory (prevent path traversal)."""
+        try:
+            resolved = path.resolve()
+            return str(resolved).startswith(str(self.configs_path))
+        except (OSError, ValueError):
+            return False
+
+    def _safe_read(self, path: Path) -> Optional[str]:
+        """Safely read a file after validating its path."""
+        if not self._validate_path(path):
+            return None
+        try:
+            return path.read_text()
+        except (OSError, IOError):
+            return None
 
     def analyze(self) -> dict:
         """Analyze all configurations and extract patterns."""
@@ -141,7 +158,9 @@ class ConfigAnalyzer:
 
     def _analyze_claude_md(self, path: Path) -> None:
         """Extract patterns from a CLAUDE.md file."""
-        content = path.read_text()
+        content = self._safe_read(path)
+        if content is None:
+            return
 
         # Extract identity pattern
         identity_match = re.search(r'[Aa]ddress me as ["\']?(\w+)["\']?', content)
@@ -194,8 +213,12 @@ class ConfigAnalyzer:
 
     def _analyze_settings(self, path: Path) -> None:
         """Extract patterns from settings.json."""
+        content = self._safe_read(path)
+        if content is None:
+            return
+
         try:
-            settings = json.loads(path.read_text())
+            settings = json.loads(content)
 
             # Extract permissions pattern
             permissions = settings.get("permissions", {})
@@ -223,12 +246,15 @@ class ConfigAnalyzer:
                             purpose=self._infer_hook_purpose(hook.get("command", ""))
                         ))
 
-        except (json.JSONDecodeError, Exception) as e:
+        except json.JSONDecodeError:
+            # Invalid JSON - skip this file
             pass
 
     def _analyze_agent(self, path: Path) -> None:
         """Extract patterns from an agent definition."""
-        content = path.read_text()
+        content = self._safe_read(path)
+        if content is None:
+            return
 
         # Parse YAML frontmatter
         frontmatter_match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
@@ -250,7 +276,9 @@ class ConfigAnalyzer:
 
     def _analyze_command(self, path: Path) -> None:
         """Extract patterns from a command definition."""
-        content = path.read_text()
+        content = self._safe_read(path)
+        if content is None:
+            return
 
         # Parse YAML frontmatter
         frontmatter_match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)

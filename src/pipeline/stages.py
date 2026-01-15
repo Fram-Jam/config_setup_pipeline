@@ -146,34 +146,71 @@ class QuestionnaireStage(PipelineStage):
     
     def run(self, context: PipelineContext) -> PipelineContext:
         from ..questions.engine import QuestionEngine
-        
+        from ..models import Purpose, AutonomyLevel, SecurityLevel
+
         # If answers file provided, load from it (non-interactive mode)
         if self.answers_file and self.answers_file.exists():
-            import json
-            answers_dict = json.loads(self.answers_file.read_text())
-            # Convert to model (would need proper parsing)
+            file_content = self.answers_file.read_text()
+
+            # Support both JSON and YAML
+            if self.answers_file.suffix in ['.yaml', '.yml']:
+                try:
+                    import yaml
+                    answers_dict = yaml.safe_load(file_content)
+                except ImportError:
+                    console.print("[red]YAML support requires pyyaml: pip install pyyaml[/]")
+                    raise ValueError("pyyaml not installed")
+            else:
+                import json
+                answers_dict = json.loads(file_content)
+
             console.print(f"[cyan]Loaded answers from {self.answers_file}[/]")
         else:
             # Interactive mode
             patterns = context.patterns.model_dump() if context.patterns else {}
             research = context.research.model_dump() if context.research else {}
-            
+
             engine = QuestionEngine(patterns, research)
             answers_dict = engine.run_questionnaire()
-            
+
             if not answers_dict:
                 raise ValueError("Questionnaire cancelled by user")
-        
-        # Store raw answers for now (full conversion would need mapping)
+
+        # Map string values to enums with fallbacks
+        def match_enum(value: str, enum_class, default):
+            """Find enum by partial match or return default."""
+            if not value:
+                return default
+            for member in enum_class:
+                if value in member.value or member.value in value:
+                    return member
+            return default
+
+        purpose = match_enum(
+            answers_dict.get("purpose", ""),
+            Purpose,
+            Purpose.SOLO
+        )
+        autonomy = match_enum(
+            answers_dict.get("autonomy_level", ""),
+            AutonomyLevel,
+            AutonomyLevel.SENIOR_DEV
+        )
+        security = match_enum(
+            answers_dict.get("security_level", ""),
+            SecurityLevel,
+            SecurityLevel.STANDARD
+        )
+
         context.answers = QuestionnaireAnswers(
             config_name=answers_dict.get("config_name", "new-config"),
-            purpose=answers_dict.get("purpose", "Solo developer"),
-            autonomy_level=answers_dict.get("autonomy_level", "Senior dev - Suggests, waits for approval"),
-            security_level=answers_dict.get("security_level", "Standard - Balanced safety"),
+            purpose=purpose,
+            autonomy_level=autonomy,
+            security_level=security,
             enable_memory=answers_dict.get("enable_memory", False),
             enable_multi_model=answers_dict.get("enable_multi_model", False),
         )
-        
+
         return context
     
     def validate_input(self, context: PipelineContext) -> bool:

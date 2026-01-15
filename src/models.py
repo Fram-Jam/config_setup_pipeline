@@ -8,7 +8,7 @@ Uses Pydantic for validation and serialization.
 from enum import Enum
 from pathlib import Path
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # =============================================================================
@@ -226,6 +226,5 @@ class PipelineContext(BaseModel):
     # State
     current_stage: str = ""
     completed_stages: list[str] = Field(default_factory=list)
-    
-    class Config:
-        arbitrary_types_allowed = True
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -14,7 +14,7 @@ Creates:
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -25,6 +25,7 @@ class GeneratedFile:
     """A file to be generated."""
     path: str
     content: str
+    description: str = ""
 
 
 class ConfigGenerator:

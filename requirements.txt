@@ -13,5 +13,8 @@ rich>=13.0.0
 # Data validation
 pydantic>=2.0.0
 
+# YAML support
+pyyaml>=6.0.0
+
 # Optional: for secure key storage
 keyring>=24.0.0

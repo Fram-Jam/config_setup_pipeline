@@ -1,19 +1,30 @@
 #!/usr/bin/env python3
 """
-Config Setup Pipeline - Main Entry Point
+Config Setup Pipeline - Legacy Entry Point (DEPRECATED)
 
-A powerful tool for generating optimized Claude Code configurations through:
-- Interactive questionnaire with critical feedback
-- Deep research on best practices with LLM synthesis
-- Learning from existing configurations
-- Multi-model review of generated configs
-- Comprehensive validation
+This module is deprecated. Please use the new Typer CLI instead:
+
+    config-setup --help
+
+Or run directly:
+
+    python -m src.cli --help
+
+This file is kept for backwards compatibility and will be removed in v0.4.0.
 """
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
+
+# Emit deprecation warning
+warnings.warn(
+    "main.py is deprecated. Use 'config-setup' CLI or 'python -m src.cli' instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # Local imports
 from setup.wizard import SetupWizard
