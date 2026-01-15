@@ -27,7 +27,7 @@ from validator.config_validator import ConfigValidator
 from review.reviewer import ConfigReviewer
 
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 def print_banner():

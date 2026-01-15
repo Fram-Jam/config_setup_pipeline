@@ -11,25 +11,21 @@ Uses GPT-5.2 and Gemini 3 to review configurations for:
 
 import json
 import os
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Check for required packages
 try:
     import openai
 except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "openai"])
-    import openai
+    openai = None
 
 try:
     import google.generativeai as genai
 except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "google-generativeai"])
-    import google.generativeai as genai
+    genai = None
 
 
 @dataclass
@@ -170,17 +166,20 @@ class ConfigReviewer:
 
     def _review_with_openai(self, config_text: str) -> list[ReviewIssue]:
         """Review using OpenAI GPT-5.2."""
+        if openai is None:
+            print("   [OpenAI] Package not installed. Run: pip install openai")
+            return []
+
         try:
             client = openai.OpenAI(api_key=self.openai_key)
 
             response = client.chat.completions.create(
-                model="gpt-5.2-codex",
+                model="gpt-5.2-chat-latest",
                 messages=[
                     {"role": "system", "content": "You are an expert config reviewer. Respond only with valid JSON."},
                     {"role": "user", "content": REVIEW_PROMPT.format(config=config_text[:10000])}
                 ],
-                max_tokens=2048,
-                temperature=0.1
+                max_completion_tokens=2048
             )
 
             content = response.choices[0].message.content
@@ -196,6 +195,10 @@ class ConfigReviewer:
 
     def _review_with_gemini(self, config_text: str) -> list[ReviewIssue]:
         """Review using Google Gemini 3."""
+        if genai is None:
+            print("   [Gemini] Package not installed. Run: pip install google-generativeai")
+            return []
+
         try:
             genai.configure(api_key=self.gemini_key)
             model = genai.GenerativeModel("gemini-3-pro-preview")

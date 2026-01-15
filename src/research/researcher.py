@@ -11,20 +11,19 @@ Enhanced with:
 
 import json
 import os
-import subprocess
-import sys
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Check for required packages
 try:
     import requests
 except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "requests"])
-    import requests
+    print("Error: 'requests' package not installed.")
+    print("Run: pip install config-setup-pipeline")
+    sys.exit(1)
 
 
 @dataclass
