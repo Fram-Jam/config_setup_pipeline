@@ -62,13 +62,13 @@ class ConfigGenerator:
 
         return {
             "config_name": answers.get("config_name", "new-config"),
-            "files": [{"path": f.path, "size": len(f.content)} for f in self.files],
+            "files": [{"path": f.path, "content": f.content, "description": f.description} for f in self.files],
             "answers": answers
         }
 
     def _generate_claude_md(self, answers: dict) -> None:
         """Generate the main CLAUDE.md file."""
-        identity = answers.get("identity", "Boss")
+        identity = answers.get("identity_phrase", "Boss")
         purpose = answers.get("purpose", "General development")
         language = answers.get("primary_language", "Python")
         frameworks = answers.get("frameworks", [])
@@ -295,7 +295,7 @@ source {secrets_location}  # Load secrets
 
     def _generate_memory_system(self, answers: dict) -> None:
         """Generate memory system files."""
-        identity = answers.get("identity", "Boss")
+        identity = answers.get("identity_phrase", "Boss")
 
         # session_log.md
         self.files.append(GeneratedFile(

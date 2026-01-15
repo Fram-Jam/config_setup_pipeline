@@ -50,12 +50,15 @@ class SetupStage(PipelineStage):
         else:
             profile = wizard.ensure_setup()
         
+        # Convert wizard's list[str] to bool for Pydantic model
+        has_api_keys = len(profile.api_keys_configured) > 0 if isinstance(profile.api_keys_configured, list) else bool(profile.api_keys_configured)
+
         context.profile = UserProfile(
             name=profile.name,
             configs_path=profile.configs_path,
             discovered_configs=profile.discovered_configs,
             preferences=profile.preferences,
-            api_keys_configured=profile.api_keys_configured
+            api_keys_configured=has_api_keys
         )
         
         console.print(f"\n[green]Welcome, {profile.name}![/]")
@@ -177,38 +180,48 @@ class QuestionnaireStage(PipelineStage):
                 raise ValueError("Questionnaire cancelled by user")
 
         # Map string values to enums with fallbacks
-        def match_enum(value: str, enum_class, default):
+        def safe_str(value, default: str = "") -> str:
+            """Safely convert value to string, return default if not a string."""
+            return value if isinstance(value, str) else default
+
+        def match_enum(value, enum_class, default):
             """Find enum by partial match or return default."""
-            if not value:
+            str_value = safe_str(value, "")
+            if not str_value:
                 return default
             for member in enum_class:
-                if value in member.value or member.value in value:
+                if str_value in member.value or member.value in str_value:
                     return member
             return default
 
         purpose = match_enum(
-            answers_dict.get("purpose", ""),
+            answers_dict.get("purpose"),
             Purpose,
             Purpose.SOLO
         )
         autonomy = match_enum(
-            answers_dict.get("autonomy_level", ""),
+            answers_dict.get("autonomy_level"),
             AutonomyLevel,
             AutonomyLevel.SENIOR_DEV
         )
         security = match_enum(
-            answers_dict.get("security_level", ""),
+            answers_dict.get("security_level"),
             SecurityLevel,
             SecurityLevel.STANDARD
         )
 
+        # Safely extract and validate values from answers_dict
+        config_name = safe_str(answers_dict.get("config_name"), "new-config")
+        enable_memory = bool(answers_dict.get("enable_memory", False))
+        enable_multi_model = bool(answers_dict.get("enable_multi_model", False))
+
         context.answers = QuestionnaireAnswers(
-            config_name=answers_dict.get("config_name", "new-config"),
+            config_name=config_name,
             purpose=purpose,
             autonomy_level=autonomy,
             security_level=security,
-            enable_memory=answers_dict.get("enable_memory", False),
-            enable_multi_model=answers_dict.get("enable_multi_model", False),
+            enable_memory=enable_memory,
+            enable_multi_model=enable_multi_model,
         )
 
         return context
@@ -220,33 +233,57 @@ class QuestionnaireStage(PipelineStage):
 
 class CriticalAnalysisStage(PipelineStage):
     """Critical analysis of configuration choices."""
-    
+
     name = "analysis"
     description = "Analyzing configuration choices"
-    
+
     def run(self, context: PipelineContext) -> PipelineContext:
         from ..advisor.critical_advisor import CriticalAdvisor
-        
+        from ..models import Concern, Severity, Category
+
         research = context.research.model_dump() if context.research else {}
         answers = context.answers.model_dump() if context.answers else {}
-        
+
         advisor = CriticalAdvisor(research)
         analysis = advisor.analyze_choices(answers)
-        
+
+        # Convert dataclass concerns to Pydantic models
+        def convert_severity(s: str) -> Severity:
+            mapping = {"critical": Severity.CRITICAL, "warning": Severity.WARNING, "suggestion": Severity.SUGGESTION}
+            return mapping.get(s.lower(), Severity.MEDIUM)
+
+        def convert_category(c: str) -> Category:
+            mapping = {"security": Category.SECURITY, "workflow": Category.WORKFLOW,
+                       "features": Category.FEATURES, "tech_stack": Category.TECH_STACK,
+                       "essentials": Category.ESSENTIALS}
+            return mapping.get(c.lower(), Category.IMPROVEMENT)
+
+        converted_concerns = [
+            Concern(
+                severity=convert_severity(c.severity),
+                category=convert_category(c.category),
+                message=c.message,
+                question=c.question,
+                recommendation=c.recommendation,
+                context=c.context
+            )
+            for c in analysis.concerns
+        ]
+
         context.analysis = AnalysisResult(
             is_valid=analysis.is_valid,
-            concerns=[],  # Would need to convert Concern objects
+            concerns=converted_concerns,
             score=analysis.score,
             summary=analysis.summary
         )
-        
+
         console.print(f"\n[cyan]Configuration Score: {analysis.score}/100[/]")
         console.print(f"  {analysis.summary}")
-        
+
         # Present concerns if any
         if not advisor.present_concerns():
             raise ValueError("User declined to continue with current configuration")
-        
+
         return context
     
     def validate_input(self, context: PipelineContext) -> bool:
@@ -290,37 +327,54 @@ class GenerationStage(PipelineStage):
 
 class ValidationStage(PipelineStage):
     """Validate generated configuration."""
-    
+
     name = "validation"
     description = "Validating configuration"
-    
+
     def run(self, context: PipelineContext) -> PipelineContext:
         from ..validator.config_validator import ConfigValidator
-        
+        from ..models import ValidationIssue as ModelValidationIssue, Severity
+
         validator = ConfigValidator()
-        
+
         # Build config dict for validation
         config = {
             "answers": context.answers.model_dump() if context.answers else {},
             "files": [f.model_dump() for f in context.generated_files]
         }
-        
+
         files_list = [
             {"path": f.path, "content": f.content}
             for f in context.generated_files
         ]
-        
+
         report = validator.validate_generated_config(config, files_list)
-        
+
+        # Convert dataclass issues to Pydantic models
+        def convert_severity(s: str) -> Severity:
+            mapping = {"error": Severity.CRITICAL, "warning": Severity.WARNING, "info": Severity.INFO}
+            return mapping.get(s.lower(), Severity.MEDIUM)
+
+        converted_issues = [
+            ModelValidationIssue(
+                severity=convert_severity(i.severity),
+                file=i.file,
+                line=i.line,
+                message=i.message,
+                fix=i.fix
+            )
+            for i in report.issues
+        ]
+
         context.validation = ValidationReport(
             is_valid=report.is_valid,
-            issues=[],  # Would convert ValidationIssue objects
+            issues=converted_issues,
             score=report.score,
             summary=report.summary,
             checks_passed=report.checks_passed,
             checks_total=report.checks_total
         )
-        
+
         console.print(f"\n[cyan]Validation Score: {report.score}%[/]")
         console.print(f"  {report.summary}")
         
@@ -353,51 +407,97 @@ class ReviewStage(PipelineStage):
     
     def run(self, context: PipelineContext) -> PipelineContext:
         from ..review.reviewer import ConfigReviewer
-        
+        from ..models import ReviewIssue as ModelReviewIssue, Severity, Category
+
         reviewer = ConfigReviewer()
-        
+
         config = {
             "config_name": context.answers.config_name if context.answers else "unnamed",
             "files": [f.model_dump() for f in context.generated_files],
             "answers": context.answers.model_dump() if context.answers else {}
         }
-        
+
         results = reviewer.review(config)
-        
-        # Store review issues
-        context.review_issues = []  # Would convert ReviewIssue objects
-        
+
+        # Convert dict issues to Pydantic models
+        def convert_severity(s: str) -> Severity:
+            mapping = {"critical": Severity.CRITICAL, "high": Severity.HIGH,
+                       "medium": Severity.MEDIUM, "low": Severity.LOW}
+            return mapping.get(s.lower(), Severity.MEDIUM)
+
+        def convert_category(c: str) -> Category:
+            mapping = {"security": Category.SECURITY, "best_practice": Category.BEST_PRACTICE,
+                       "missing": Category.MISSING, "improvement": Category.IMPROVEMENT}
+            return mapping.get(c.lower(), Category.IMPROVEMENT)
+
+        context.review_issues = [
+            ModelReviewIssue(
+                severity=convert_severity(i.get("severity", "medium")),
+                category=convert_category(i.get("category", "improvement")),
+                message=i.get("message", ""),
+                suggestion=i.get("suggestion", ""),
+                source=i.get("source", "unknown"),
+                file=i.get("file", ""),
+                confidence=i.get("confidence", 80)
+            )
+            for i in results.get("issues", [])
+        ]
+
         summary = results.get("summary", {})
         console.print(f"\n[cyan]Review complete![/]")
         console.print(f"  • {summary.get('total', 0)} issues found")
         console.print(f"  • {summary.get('critical', 0)} critical")
-        
+
         return context
-    
+
     def validate_input(self, context: PipelineContext) -> bool:
         return len(context.generated_files) > 0
 
 
 class WriteStage(PipelineStage):
     """Write configuration to disk."""
-    
+
     name = "write"
     description = "Writing configuration files"
-    
+
     def __init__(self, output_path: Optional[Path] = None, force: bool = False):
         self.output_path = output_path
         self.force = force
-    
+
+    def _sanitize_config_name(self, name: str) -> str:
+        """Sanitize config name to prevent path traversal attacks."""
+        import re
+        # Remove any path separators and parent directory references
+        sanitized = name.replace("/", "").replace("\\", "").replace("..", "")
+        # Only allow alphanumeric, hyphens, underscores
+        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', sanitized)
+        # Ensure non-empty result
+        return sanitized if sanitized else "new-config"
+
     def run(self, context: PipelineContext) -> PipelineContext:
+        import os
         from ..generator.config_generator import ConfigGenerator
-        
-        # Determine output path
+
+        # Determine output path with sanitization
+        base_dir = Path.cwd()
         path = self.output_path
         if not path and context.answers:
-            path = Path.cwd() / context.answers.config_name
+            safe_name = self._sanitize_config_name(context.answers.config_name)
+            path = base_dir / safe_name
         if not path:
-            path = Path.cwd() / "new-config"
-        
+            path = base_dir / "new-config"
+
+        # SECURITY: Verify final path is within the base directory
+        resolved_path = path.resolve()
+        resolved_base = base_dir.resolve()
+        try:
+            # Use relative_to() which raises ValueError if path is not inside base
+            resolved_path.relative_to(resolved_base)
+        except ValueError:
+            raise ValueError(f"Invalid output path: {path} escapes base directory")
+
+        path = resolved_path
+
         # Confirm with user unless force mode
         if not self.force:
             if not Confirm.ask(f"\nWrite configuration to [cyan]{path}[/]?", default=True):
